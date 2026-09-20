@@ -159,17 +159,24 @@ class MinimalTaxValueCalculator(BaseCalculator):
 
             gross_revenue_a = Decimal(0)
             gross_revenue_b = Decimal(0)
-            withholding_tax = Decimal(0)
+            # A bank statement may explicitly report no Swiss withholding tax,
+            # for example where its interest falls below the withholding
+            # threshold. Preserve that source fact instead of deriving 35%.
+            source_withholding_tax = ba_payment.withHoldingTaxClaim
+            withholding_tax = (
+                source_withholding_tax if source_withholding_tax is not None else Decimal(0)
+            )
 
             if (
                 chf_revenue is not None and chf_revenue > 0
             ):  # Only process if there's actual revenue
                 if self._current_account_is_type_A is True:
                     gross_revenue_a = chf_revenue
-                    # Calculate and set withholding tax for Type A revenue
-                    withholding_tax = (chf_revenue * WITHHOLDING_TAX_RATE).quantize(
-                        Decimal("0.01"), rounding=ROUND_HALF_UP
-                    )
+                    # Derive withholding only when the source did not supply it.
+                    if source_withholding_tax is None:
+                        withholding_tax = (chf_revenue * WITHHOLDING_TAX_RATE).quantize(
+                            Decimal("0.01"), rounding=ROUND_HALF_UP
+                        )
                 elif self._current_account_is_type_A is False:
                     gross_revenue_b = chf_revenue
                 elif self._current_account_is_type_A is None:

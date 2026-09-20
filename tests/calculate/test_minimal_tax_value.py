@@ -236,6 +236,23 @@ class TestMinimalTaxValueCalculatorHandlers:
             "0"
         )  # No gross revenue B for type A
 
+    def test_handle_bank_account_payment_preserves_explicit_source_withholding_zero(
+        self, minimal_tax_value_calculator_fill: MinimalTaxValueCalculator
+    ):
+        calculator = minimal_tax_value_calculator_fill
+        calculator._current_account_is_type_A = True
+        bap = BankAccountPayment(
+            amount=Decimal("33.05"),
+            amountCurrency="CHF",
+            paymentDate=date(2023, 12, 31),
+            withHoldingTaxClaim=Decimal("0.00"),
+        )
+
+        calculator._handle_BankAccountPayment(bap, "bap")
+
+        assert bap.grossRevenueA == Decimal("33.05")
+        assert bap.withHoldingTaxClaim == Decimal("0.00")
+
     def test_handle_bank_account_payment_type_b(
         self, minimal_tax_value_calculator_fill: MinimalTaxValueCalculator
     ):
