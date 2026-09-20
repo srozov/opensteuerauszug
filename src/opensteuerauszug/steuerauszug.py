@@ -67,6 +67,7 @@ class ImporterType(str, Enum):
     IBKR = "ibkr"
     FIDELITY = "fidelity"
     DEGIRO = "degiro"
+    LEDGER = "ledger"
     NONE = "none"
 
 
@@ -307,6 +308,15 @@ def process(
         print(f"Tax period: {parsed_period_from} to {parsed_period_to}")
     # ... (rest of date printing)
 
+    if (
+        importer_type == ImporterType.LEDGER
+        and tax_calculation_level == TaxCalculationLevel.FILL_IN
+    ):
+        raise typer.BadParameter(
+            "The ledger importer cannot use --tax-calculation-level fillin; "
+            "missing Kursliste values must be reviewed rather than invented."
+        )
+
     # --- Configuration Loading ---
     all_fidelity_account_settings_models: List[FidelityAccountSettings] = []
     all_schwab_account_settings_models: List[SchwabAccountSettings] = []
@@ -327,6 +337,7 @@ def process(
             ImporterType.SCHWAB,
             ImporterType.IBKR,
             ImporterType.DEGIRO,
+            ImporterType.LEDGER,
             ImporterType.NONE,
         ]:
             raise typer.BadParameter(
@@ -645,6 +656,23 @@ def process(
                 )
                 statement = degiro_importer.import_dir(str(input_file))
                 print("Degiro import complete.")
+
+            elif importer_type == ImporterType.LEDGER:
+                if not parsed_period_from or not parsed_period_to:
+                    raise typer.BadParameter(
+                        "--tax-year (or both --period-from and --period-to) is required for the ledger importer."
+                    )
+                if not input_file.is_file():
+                    raise typer.BadParameter(
+                        f"Input for ledger importer must be a ledger.json file, but got: {input_file}"
+                    )
+                from .importers.ledger.ledger_importer import LedgerImporter
+
+                statement = LedgerImporter(
+                    period_from=parsed_period_from,
+                    period_to=parsed_period_to,
+                ).import_file(input_file)
+                print("Ledger import complete.")
 
             elif importer_type == ImporterType.NONE and not raw_import:
                 print(

@@ -230,6 +230,7 @@ Currently supported brokers and their specific guides:
 *   **[Interactive Brokers (IBKR)](importer_ibkr.md)**: For brokerage accounts.
 *   **[Fidelity Investments](importer_fidelity.md)**: For brokerage accounts.
 *   **[DEGIRO](importer_degiro.md)**: For brokerage accounts.
+*   **[Generic ledger](importer_generic_ledger.md)**: For a reviewed `ledger.json` file from an institution without a native importer.
 
 Please refer to the documentation for your specific broker by clicking the links above to understand what files to download, their formats, and any specific configurations required in `config.toml`.
 
@@ -277,13 +278,13 @@ Neither of the following options is currently complete and should not be used.
 One all the data is setup the Steuerauszug can be generated with
 
 ```console
-opensteuerauszug process {broker data location} --importer {schwab|ibkr|fidelity|degiro} --tax-year {tax year} -o {output filename.pdf}
+opensteuerauszug process {input location} --importer {schwab|ibkr|fidelity|degiro|ledger} --tax-year {tax year} -o {output filename.pdf}
 ```
 
 for minimal mode
 
 ```console
-opensteuerauszug process {broker data location} --importer {schwab|ibkr|fidelity|degiro} --tax-calculation-level minimal --tax-year {tax year} -o {output filename.pdf}
+opensteuerauszug process {input location} --importer {schwab|ibkr|fidelity|degiro|ledger} --tax-calculation-level minimal --tax-year {tax year} -o {output filename.pdf}
 ```
 
 If doing active development it is best to place any real tax data including the generated output outside of the source tree or in the `/private` directory. 

@@ -1355,6 +1355,89 @@ def test_corporate_action_exchange_creates_mutations(sample_ibkr_settings):
             os.remove(xml_file_path)
 
 
+def test_corporate_action_closed_lot_does_not_duplicate_mutation(sample_ibkr_settings):
+    xml_content = """
+<FlexQueryResponse queryName="ClosedLotQuery" type="AF">
+  <FlexStatements count="1">
+    <FlexStatement accountId="U1234567" fromDate="2025-01-01" toDate="2025-12-31" period="Year" whenGenerated="2026-01-15T10:00:00">
+      <Trades>
+        <Trade accountId="U1234567" assetCategory="STK" symbol="OLD" description="OLD COMPANY" conid="101" isin="US0000000001" currency="USD" quantity="10" tradeDate="2025-02-01" settleDateTarget="2025-02-03" tradePrice="10" tradeMoney="100" buySell="BUY" ibCommission="0" />
+      </Trades>
+      <CorporateActions>
+        <CorporateAction accountId="U1234567" assetCategory="STK" symbol="OLD" description="OLD COMPANY" conid="101" isin="US0000000001" currency="USD" quantity="-10" reportDate="2025-12-08" actionDescription="OLD MERGED INTO NEW" type="TC" levelOfDetail="DETAIL" />
+        <CorporateAction accountId="U1234567" assetCategory="STK" symbol="OLD" description="OLD COMPANY" conid="101" isin="US0000000001" currency="USD" quantity="10" reportDate="2025-12-08" actionDescription="OLD COMPANY" type="TC" levelOfDetail="CLOSED_LOT" />
+      </CorporateActions>
+      <CashReport>
+        <CashReportCurrency accountId="U1234567" currency="USD" endingCash="0" fromDate="2025-01-01" toDate="2025-12-31" />
+      </CashReport>
+    </FlexStatement>
+  </FlexStatements>
+</FlexQueryResponse>
+"""
+    importer = IbkrImporter(
+        period_from=date(2025, 1, 1),
+        period_to=date(2025, 12, 31),
+        account_settings_list=sample_ibkr_settings,
+    )
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".xml") as tmp_file:
+        tmp_file.write(xml_content)
+        xml_file_path = tmp_file.name
+
+    try:
+        tax_statement = importer.import_files([xml_file_path])
+        assert tax_statement.listOfSecurities is not None
+        security = tax_statement.listOfSecurities.depot[0].security[0]
+        mutations = [stock for stock in security.stock if stock.mutation]
+        assert [stock.quantity for stock in mutations] == [Decimal("10"), Decimal("-10")]
+
+        closing_balance = next(
+            stock
+            for stock in security.stock
+            if not stock.mutation and stock.referenceDate == date(2026, 1, 1)
+        )
+        assert closing_balance.quantity == Decimal("0")
+    finally:
+        if os.path.exists(xml_file_path):
+            os.remove(xml_file_path)
+
+
+def test_ibkr_rus_cash_currency_is_normalized_to_rub(sample_ibkr_settings):
+    xml_content = """
+<FlexQueryResponse queryName="RussianCashQuery" type="AF">
+  <FlexStatements count="1">
+    <FlexStatement accountId="U1234567" fromDate="2025-01-01" toDate="2025-12-31" period="Year" whenGenerated="2026-01-15T10:00:00">
+      <CashTransactions>
+        <CashTransaction accountId="U1234567" type="Broker Interest Received" currency="RUS" amount="12.34" description="Cash interest" conid="" symbol="" dateTime="2025-06-30T00:00:00" assetCategory="" />
+      </CashTransactions>
+      <CashReport>
+        <CashReportCurrency accountId="U1234567" currency="RUS" endingCash="500" fromDate="2025-01-01" toDate="2025-12-31" />
+      </CashReport>
+    </FlexStatement>
+  </FlexStatements>
+</FlexQueryResponse>
+"""
+    importer = IbkrImporter(
+        period_from=date(2025, 1, 1),
+        period_to=date(2025, 12, 31),
+        account_settings_list=sample_ibkr_settings,
+    )
+
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".xml") as tmp_file:
+        tmp_file.write(xml_content)
+        xml_file_path = tmp_file.name
+
+    try:
+        tax_statement = importer.import_files([xml_file_path])
+        assert tax_statement.listOfBankAccounts is not None
+        account = tax_statement.listOfBankAccounts.bankAccount[0]
+        assert account.bankAccountCurrency == "RUB"
+        assert account.payment[0].amountCurrency == "RUB"
+    finally:
+        if os.path.exists(xml_file_path):
+            os.remove(xml_file_path)
+
+
 def test_bank_account_names_always_set(sample_ibkr_settings):
     """Test that bank account names are always set for all currencies with closing balances."""
     period_from = date(2023, 1, 1)
