@@ -47,6 +47,11 @@ IBKR_ASSET_CATEGORY_TO_ECH_SECURITY_CATEGORY: Final[Dict[str, SecurityCategory]]
     "ETF": "FUND",
     "FUND": "FUND",
 }
+IBKR_CURRENCY_ALIASES: Final[Dict[str, str]] = {
+    # IBKR labels cash in sanctioned Russian securities accounts as RUS,
+    # although the ISO-4217 currency and the Kursliste code are RUB.
+    "RUS": "RUB",
+}
 # Import ibflex components to avoid RuntimeWarning about module loading order
 import ibflex
 from ibflex.parser import FlexParserError
@@ -90,7 +95,9 @@ class IbkrImporter:
                 error_desc = (
                     f"{object_description} (Symbol: " f"{getattr(data_object, 'symbol', 'N/A')})"
                 )
-            elif hasattr(data_object, 'accountId') and 'Account:' not in object_description:  # Avoid double "Account:"
+            elif (
+                hasattr(data_object, 'accountId') and 'Account:' not in object_description
+            ):  # Avoid double "Account:"
                 error_desc = (
                     f"{object_description} (Account: "
                     f"{getattr(data_object, 'accountId', 'N/A')})"
@@ -139,6 +146,18 @@ class IbkrImporter:
         if not country:
             return None
         return country[:2]
+
+    def _normalize_currency(self, value: object, source_label: str) -> str:
+        currency = str(value).strip().upper()
+        normalized = IBKR_CURRENCY_ALIASES.get(currency, currency)
+        if normalized != currency:
+            logger.info(
+                "Normalizing IBKR currency code %s to ISO-4217 code %s for %s.",
+                currency,
+                normalized,
+                source_label,
+            )
+        return normalized
 
     def _maybe_update_security_country(
         self,
@@ -360,9 +379,12 @@ class IbkrImporter:
                     'amount',
                     f"CashTransaction (corrections) {description[:30]}",
                 )
-                currency = self._get_required_field(
-                    cash_tx,
-                    'currency',
+                currency = self._normalize_currency(
+                    self._get_required_field(
+                        cash_tx,
+                        'currency',
+                        'CashTransaction (corrections)',
+                    ),
                     'CashTransaction (corrections)',
                 )
 
@@ -507,7 +529,9 @@ class IbkrImporter:
                         'tradeMoney',
                         f"Trade {symbol}",
                     )
-                    currency = self._get_required_field(trade, 'currency', 'Trade')
+                    currency = self._normalize_currency(
+                        self._get_required_field(trade, 'currency', 'Trade'), 'Trade'
+                    )
                     # 'BUY' or 'SELL'
                     buy_sell = self._get_required_field(trade, 'buySell', 'Trade')
 
@@ -628,7 +652,10 @@ class IbkrImporter:
                         'position',
                         f"OpenPosition {symbol}",
                     )
-                    currency = self._get_required_field(open_pos, 'currency', 'OpenPosition')
+                    currency = self._normalize_currency(
+                        self._get_required_field(open_pos, 'currency', 'OpenPosition'),
+                        'OpenPosition',
+                    )
 
                     if asset_category not in ["STK", "OPT", "FUT", "BOND", "ETF", "FUND", "FOP"]:
                         logger.warning(
@@ -738,7 +765,9 @@ class IbkrImporter:
                             f" for {symbol}"
                         )
 
-                    currency = self._get_required_field(transfer, 'currency', 'Transfer')
+                    currency = self._normalize_currency(
+                        self._get_required_field(transfer, 'currency', 'Transfer'), 'Transfer'
+                    )
 
                     transfer_type = self._get_required_field(transfer, 'type', 'Transfer')
                     transfer_type_val = transfer_type.value
@@ -772,6 +801,18 @@ class IbkrImporter:
                 for action in stmt.CorporateActions:
                     if should_skip_entry(action, "CorporateAction"):
                         continue
+                    level_of_detail = getattr(action, "levelOfDetail", None)
+                    detail_value = (
+                        level_of_detail.value
+                        if hasattr(level_of_detail, "value")
+                        else str(level_of_detail)
+                    )
+                    if detail_value.upper() == "CLOSED_LOT":
+                        logger.info(
+                            "Skipping CorporateAction CLOSED_LOT row because it duplicates the "
+                            "underlying trade/corporate-action mutation."
+                        )
+                        continue
                     # CorporateActions have dates with time stamps, which can be at end of business etc
                     # to avoid this we assume that the reportDate is always the effective date when we see
                     # a difference in the amount of securities.
@@ -793,7 +834,10 @@ class IbkrImporter:
                         "quantity",
                         f"CorporateAction {symbol}",
                     )
-                    currency = self._get_required_field(action, "currency", "CorporateAction")
+                    currency = self._normalize_currency(
+                        self._get_required_field(action, "currency", "CorporateAction"),
+                        "CorporateAction",
+                    )
 
                     action_description = getattr(action, "actionDescription", None) or description
 
@@ -869,7 +913,10 @@ class IbkrImporter:
                         'amount',
                         f"CashTransaction {description[:30]}",
                     )
-                    currency = self._get_required_field(cash_tx, 'currency', 'CashTransaction')
+                    currency = self._normalize_currency(
+                        self._get_required_field(cash_tx, 'currency', 'CashTransaction'),
+                        'CashTransaction',
+                    )
 
                     security_id = cash_tx.conid
                     tx_type = cash_tx.type
@@ -1052,7 +1099,7 @@ class IbkrImporter:
                 curr = cash_report_currency_obj.currency
                 if curr is None or curr == "BASE_SUMMARY":
                     continue
-                curr = str(curr)
+                curr = self._normalize_currency(curr, "CashReport")
 
                 closing_balance_value: Optional[Decimal] = None
                 if cash_report_currency_obj.endingCash is not None:
