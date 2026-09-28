@@ -60,6 +60,26 @@ def test_invariant_missing_account_detail_entry_is_not_skipped():
     )
 
 
+def test_reviewed_da1_isin_is_limited_to_the_configured_account():
+    importer = IbkrImporter(
+        period_from=date(2025, 1, 1),
+        period_to=date(2025, 12, 31),
+        account_settings_list=[
+            IbkrAccountSettings(
+                account_number="U11984336",
+                broker_name="Interactive Brokers",
+                account_name_alias="Russian account",
+                full_name="Test User",
+                da1_nonrefundable_isins=["RU0009046510"],
+            )
+        ],
+    )
+
+    assert importer._is_da1_nonrefundable_isin("U11984336", "RU0009046510")
+    assert not importer._is_da1_nonrefundable_isin("U5060665", "RU0009046510")
+    assert not importer._is_da1_nonrefundable_isin("U11984336", "US46428Q1094")
+
+
 # Define a basic sample IBKR Flex Query XML as a string
 SAMPLE_IBKR_FLEX_XML_VALID = """
 <FlexQueryResponse queryName="TestQuery" type="AF">

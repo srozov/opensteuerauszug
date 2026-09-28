@@ -236,7 +236,7 @@ class TestMinimalTaxValueCalculatorHandlers:
             "0"
         )  # No gross revenue B for type A
 
-    def test_handle_bank_account_payment_preserves_explicit_source_withholding_zero(
+    def test_handle_bank_account_payment_with_explicit_zero_withholding_is_type_b(
         self, minimal_tax_value_calculator_fill: MinimalTaxValueCalculator
     ):
         calculator = minimal_tax_value_calculator_fill
@@ -250,7 +250,8 @@ class TestMinimalTaxValueCalculatorHandlers:
 
         calculator._handle_BankAccountPayment(bap, "bap")
 
-        assert bap.grossRevenueA == Decimal("33.05")
+        assert bap.grossRevenueA == Decimal("0")
+        assert bap.grossRevenueB == Decimal("33.05")
         assert bap.withHoldingTaxClaim == Decimal("0.00")
 
     def test_handle_bank_account_payment_type_b(
@@ -363,6 +364,7 @@ class TestMinimalTaxValueCalculatorHandlers:
         calculator._handle_SecurityTaxValue(stv, "stv")
         assert stv.exchangeRate == Decimal("0.5")
         assert stv.value == Decimal("1000")
+        assert stv.undefined is None
 
     def test_handle_security_tax_value_no_value_sets_rate(
         self, minimal_tax_value_calculator_fill: MinimalTaxValueCalculator

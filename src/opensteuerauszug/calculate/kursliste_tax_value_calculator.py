@@ -283,9 +283,6 @@ class KurslisteTaxValueCalculator(MinimalTaxValueCalculator):
                 self._set_field_value(sec_tax_value, "value", Decimal("0"), path_prefix)
                 self._set_field_value(sec_tax_value, "exchangeRate", rate, path_prefix)
             return
-        else:
-            self._set_field_value(sec_tax_value, "undefined", True, path_prefix)
-
         super()._handle_SecurityTaxValue(sec_tax_value, path_prefix)
 
     def _validate_stock_split(
@@ -553,7 +550,16 @@ class KurslisteTaxValueCalculator(MinimalTaxValueCalculator):
 
         kl_sec = self._current_kursliste_security
         if kl_sec is None:
-            super().computePayments(security, path_prefix)
+            # There is no official payment record to replace broker evidence.
+            # In particular, do not call MinimalTaxValueCalculator.computePayments:
+            # its empty payment list would overwrite valid broker dividends in
+            # OVERWRITE mode.  The source payments remain on the security and
+            # are subsequently converted/categorised by the base calculator.
+            logger.debug(
+                "No Kursliste payment data for %s; retaining %d broker payment(s).",
+                security.isin or security.securityName,
+                len(security.payment),
+            )
             return
 
         payments = [p for p in kl_sec.payment if not p.deleted]
@@ -864,3 +870,61 @@ class KurslisteTaxValueCalculator(MinimalTaxValueCalculator):
             result.append(sec_payment)
 
         self.setKurslistePayments(security, result, path_prefix)
+
+    def _handle_SecurityPayment(self, sec_payment: SecurityPayment, path_prefix: str) -> None:
+        """Calculate taxable income for broker dividends absent from the Kursliste.
+
+        A broker withholding row remains evidence only: without an official
+        Kursliste/DA-1 classification, its recoverable and non-recoverable
+        portions cannot be inferred safely.  A positive broker dividend,
+        however, is still taxable income and can be converted using the
+        payment-date exchange rate.
+        """
+        super()._handle_SecurityPayment(sec_payment, path_prefix)
+
+        if self._current_kursliste_security or sec_payment.kursliste:
+            return
+        if sec_payment.nonRecoverableTaxAmountOriginal is not None:
+            if not sec_payment.claimDA1:
+                return
+            if not sec_payment.amountCurrency or not sec_payment.paymentDate:
+                raise ValueError(
+                    f"DA-1 withholding payment at {path_prefix} is missing amountCurrency or paymentDate."
+                )
+            chf_tax, rate = self._convert_to_chf(
+                sec_payment.nonRecoverableTaxAmountOriginal,
+                sec_payment.amountCurrency,
+                f"{path_prefix}.exchangeRate",
+                sec_payment.paymentDate,
+            )
+            self._set_field_value(sec_payment, "exchangeRate", rate, path_prefix)
+            if chf_tax is not None:
+                self._set_field_value(sec_payment, "nonRecoverableTaxAmount", chf_tax, path_prefix)
+            return
+        if sec_payment.amount is None or sec_payment.amount <= 0:
+            return
+        if not sec_payment.amountCurrency or not sec_payment.paymentDate:
+            raise ValueError(
+                f"SecurityPayment at {path_prefix} is missing amountCurrency or paymentDate."
+            )
+
+        chf_revenue, rate = self._convert_to_chf(
+            sec_payment.amount,
+            sec_payment.amountCurrency,
+            f"{path_prefix}.exchangeRate",
+            sec_payment.paymentDate,
+        )
+        self._set_field_value(sec_payment, "exchangeRate", rate, path_prefix)
+
+        if chf_revenue is None:
+            return
+        if self._current_security_is_type_A is True:
+            self._set_field_value(sec_payment, "grossRevenueA", chf_revenue, path_prefix)
+            self._set_field_value(sec_payment, "grossRevenueB", Decimal("0"), path_prefix)
+        elif self._current_security_is_type_A is False:
+            self._set_field_value(sec_payment, "grossRevenueA", Decimal("0"), path_prefix)
+            self._set_field_value(sec_payment, "grossRevenueB", chf_revenue, path_prefix)
+        else:
+            raise ValueError(
+                f"SecurityPayment at {path_prefix} has revenue, but parent Security has no country specified."
+            )

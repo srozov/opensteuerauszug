@@ -62,11 +62,14 @@ class ClosingBalance(LedgerModel):
 class ClosingQuantity(LedgerModel):
     date: date
     quantity: Decimal
+    value: Optional[Decimal] = None
 
-    @field_validator("quantity", mode="before")
+    @field_validator("quantity", "value", mode="before")
     @classmethod
-    def quantity_is_decimal_string(cls, value: Any) -> Decimal:
-        return _decimal_from_string(value, "closing_quantity.quantity")
+    def values_are_decimal_strings(cls, value: Any, info: Any) -> Optional[Decimal]:
+        if value is None:
+            return None
+        return _decimal_from_string(value, f"closing_quantity.{info.field_name}")
 
     @field_validator("quantity")
     @classmethod
@@ -74,6 +77,19 @@ class ClosingQuantity(LedgerModel):
         if value < 0:
             raise ValueError("closing_quantity.quantity cannot be negative")
         return value
+
+    @field_validator("value")
+    @classmethod
+    def value_is_not_negative(cls, value: Optional[Decimal]) -> Optional[Decimal]:
+        if value is not None and value < 0:
+            raise ValueError("closing_quantity.value cannot be negative")
+        return value
+
+    @model_validator(mode="after")
+    def zero_quantity_requires_zero_value(self) -> "ClosingQuantity":
+        if self.quantity == 0 and self.value not in (None, Decimal("0")):
+            raise ValueError("closing_quantity.value must be zero when quantity is zero")
+        return self
 
 
 class CashPaymentKind(str, Enum):
@@ -185,6 +201,7 @@ class SecurityPaymentEntry(LedgerModel):
     currency: str
     foreign_withholding_tax: Optional[Decimal] = None
     foreign_withholding_country: Optional[str] = None
+    foreign_withholding_tax_nonrefundable: bool = False
     swiss_withholding_tax: Optional[Decimal] = None
 
     @field_validator(
@@ -223,6 +240,10 @@ class SecurityPaymentEntry(LedgerModel):
     def withholding_country_requires_tax(self) -> "SecurityPaymentEntry":
         if self.foreign_withholding_country is not None and self.foreign_withholding_tax is None:
             raise ValueError("foreign_withholding_country requires foreign_withholding_tax")
+        if self.foreign_withholding_tax_nonrefundable and self.foreign_withholding_tax is None:
+            raise ValueError(
+                "foreign_withholding_tax_nonrefundable requires foreign_withholding_tax"
+            )
         return self
 
 

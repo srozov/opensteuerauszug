@@ -190,6 +190,13 @@ class LedgerImporter:
                 referenceDate=period_to + timedelta(days=1),
                 mutation=False,
                 quantity=security.closing_quantity.quantity,
+                unitPrice=(
+                    security.closing_quantity.value / security.closing_quantity.quantity
+                    if security.closing_quantity.value is not None
+                    and security.closing_quantity.quantity != 0
+                    else None
+                ),
+                balance=security.closing_quantity.value,
                 balanceCurrency=security.currency,
                 quotationType="PIECE",
             )
@@ -238,6 +245,7 @@ class LedgerImporter:
                     is_withholding=True,
                 )
                 withholding_payment.exDate = payment_entry.ex_date
+                withholding_payment.claimDA1 = payment_entry.foreign_withholding_tax_nonrefundable
                 positions[position]["payments"].append(withholding_payment)
             if payment_entry.swiss_withholding_tax is not None:
                 withholding_payment = build_security_payment(

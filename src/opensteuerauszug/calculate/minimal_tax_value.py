@@ -171,12 +171,19 @@ class MinimalTaxValueCalculator(BaseCalculator):
                 chf_revenue is not None and chf_revenue > 0
             ):  # Only process if there's actual revenue
                 if self._current_account_is_type_A is True:
-                    gross_revenue_a = chf_revenue
-                    # Derive withholding only when the source did not supply it.
-                    if source_withholding_tax is None:
-                        withholding_tax = (chf_revenue * WITHHOLDING_TAX_RATE).quantize(
-                            Decimal("0.01"), rounding=ROUND_HALF_UP
-                        )
+                    if source_withholding_tax == Decimal(0):
+                        # The source expressly says that no Swiss withholding tax was
+                        # deducted (for example, interest within the CHF 200 customer
+                        # deposit exemption). It is still taxable income, but belongs
+                        # in the no-withholding-tax (B) column.
+                        gross_revenue_b = chf_revenue
+                    else:
+                        gross_revenue_a = chf_revenue
+                        # Derive withholding only when the source did not supply it.
+                        if source_withholding_tax is None:
+                            withholding_tax = (chf_revenue * WITHHOLDING_TAX_RATE).quantize(
+                                Decimal("0.01"), rounding=ROUND_HALF_UP
+                            )
                 elif self._current_account_is_type_A is False:
                     gross_revenue_b = chf_revenue
                 elif self._current_account_is_type_A is None:
@@ -295,7 +302,11 @@ class MinimalTaxValueCalculator(BaseCalculator):
                 f"SecurityTaxValue at {path_prefix} has a 'value' but no 'balanceCurrency'. Cannot perform currency conversion or set exchange rate accurately."
             )
 
-        self._set_field_value(sec_tax_value, "undefined", True, path_prefix)
+        # A reviewed source valuation is sufficient when the official
+        # Kursliste has no price.  Mark the amount undefined only if neither
+        # an importer nor the calculation could provide a value.
+        if chf_value is None:
+            self._set_field_value(sec_tax_value, "undefined", True, path_prefix)
 
     def _handle_SecurityPayment(self, sec_payment: SecurityPayment, path_prefix: str) -> None:
         """Handles SecurityPayment objects for currency conversion and revenue categorization."""

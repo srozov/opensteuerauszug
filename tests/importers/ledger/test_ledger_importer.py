@@ -56,7 +56,11 @@ def _ledger_data() -> dict:
                 "category": "SHARE",
                 "isin": "US0378331005",
                 "valor": None,
-                "closing_quantity": {"date": "2025-12-31", "quantity": "10"},
+                "closing_quantity": {
+                    "date": "2025-12-31",
+                    "quantity": "10",
+                    "value": "2100.00",
+                },
                 "stocks": [
                     {
                         "date": "2025-03-12",
@@ -79,6 +83,7 @@ def _ledger_data() -> dict:
                         "currency": "USD",
                         "foreign_withholding_tax": "0.38",
                         "foreign_withholding_country": "US",
+                        "foreign_withholding_tax_nonrefundable": True,
                     }
                 ],
             }
@@ -108,8 +113,11 @@ def test_reviewed_ledger_preserves_source_amounts_and_builds_positions(tmp_path:
     assert security.isin == "US0378331005"
     assert security.stock[-1].referenceDate == date(2026, 1, 1)
     assert security.stock[-1].quantity == Decimal("10")
+    assert security.stock[-1].balance == Decimal("2100.00")
+    assert security.stock[-1].unitPrice == Decimal("210.00")
     assert security.payment[0].amount == Decimal("2.50")
     assert security.payment[1].nonRecoverableTaxAmountOriginal == Decimal("0.38")
+    assert security.payment[1].claimDA1 is True
 
 
 def test_ledger_rejects_json_floating_point_amounts(tmp_path: Path):

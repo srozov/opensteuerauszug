@@ -1512,6 +1512,9 @@ class SecurityPayment(BaseXmlModel):
     # Preserve original broker text only when needed for reconciliation output.
     broker_label_original: Optional[str] = Field(default=None, exclude=True)
     nonRecoverableTaxAmountOriginal: Optional[Decimal] = Field(default=None, exclude=True)
+    # An importer may set this only after establishing that the source tax is
+    # non-refundable and belongs on DA-1.  It is never serialized directly.
+    claimDA1: bool = Field(default=False, exclude=True)
     payment_type_original: Optional[PaymentTypeOriginal] = Field(default=None, exclude=True)
 
     # Withholding-cap metadata (set by WithholdingCapCalculator, never serialized).
