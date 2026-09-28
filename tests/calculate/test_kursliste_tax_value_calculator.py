@@ -16,6 +16,7 @@ from opensteuerauszug.model.ech0196 import (
     DepotNumber,
     ListOfSecurities,
     Security,
+    SecurityPayment,
     SecurityTaxValue,
     SecurityStock,
     TaxStatement,
@@ -251,6 +252,67 @@ def test_handle_security_tax_value_sets_undefined_when_not_in_kursliste(kurslist
     assert stv.undefined is True
     # kursliste flag should not be set since security wasn't in Kursliste
     assert stv.kursliste is not True
+
+
+def test_missing_kursliste_retains_broker_payment(kursliste_manager):
+    """A missing Kursliste record must not erase a broker-reported dividend."""
+    provider = KurslisteExchangeRateProvider(kursliste_manager)
+    calc = KurslisteTaxValueCalculator(
+        mode=CalculationMode.OVERWRITE, exchange_rate_provider=provider
+    )
+    broker_payment = SecurityPayment(
+        paymentDate=date(2025, 6, 26),
+        name="Broker dividend",
+        quotationType="PIECE",
+        quantity=Decimal("10"),
+        amountCurrency="CHF",
+        amount=Decimal("3537.57"),
+    )
+    withholding_payment = SecurityPayment(
+        paymentDate=date(2025, 6, 26),
+        name="Broker withholding",
+        quotationType="PIECE",
+        quantity=Decimal("10"),
+        amountCurrency="CHF",
+        amount=Decimal("-458"),
+        nonRecoverableTaxAmountOriginal=Decimal("458"),
+        claimDA1=True,
+    )
+    sec = Security(
+        country="RU",
+        securityName="Unlisted Russian share",
+        positionId=1,
+        currency="RUB",
+        quotationType="PIECE",
+        securityCategory="SHARE",
+        isin=ISINType("RU000A0JPNM1"),
+        taxValue=SecurityTaxValue(
+            referenceDate=date(2025, 12, 31),
+            quotationType="PIECE",
+            quantity=Decimal("10"),
+            balanceCurrency="RUB",
+        ),
+        payment=[broker_payment, withholding_payment],
+        stock=[
+            SecurityStock(
+                referenceDate=date(2025, 1, 1),
+                mutation=False,
+                quotationType="PIECE",
+                quantity=Decimal("10"),
+                balanceCurrency="RUB",
+            )
+        ],
+    )
+
+    calc._handle_Security(sec, "sec")
+    calc._handle_SecurityPayment(broker_payment, "sec.payment[0]")
+    calc._handle_SecurityPayment(withholding_payment, "sec.payment[1]")
+
+    assert sec.payment == [broker_payment, withholding_payment]
+    assert broker_payment.grossRevenueA == Decimal("0")
+    assert broker_payment.grossRevenueB is not None
+    assert broker_payment.grossRevenueB > Decimal("0")
+    assert withholding_payment.nonRecoverableTaxAmount == Decimal("458")
 
 
 def test_compute_payments_from_kursliste_missing_ex_date(kursliste_manager):
