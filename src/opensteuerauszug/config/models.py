@@ -74,6 +74,13 @@ class IbkrAccountSettings(AccountSettingsBase):
         default=False,
         description="If True, omit rights issues from the statement when both start and end position balances are zero.",
     )
+    da1_nonrefundable_isins: list[str] = Field(
+        default_factory=list,
+        description=(
+            "ISINs whose broker-reported withholding has been reviewed as "
+            "non-refundable and should be exported as DA-1 tax."
+        ),
+    )
     # name: Optional[str] = Field(default=None, description="A user-defined name for this account (e.g., 'My IBKR Trading Account').")
     # account_id: Optional[str] = Field(default=None, description="The Interactive Brokers account ID (e.g., U1234567). Optional, as this is usually in the Flex statement, but can be used for validation or selection if a statement contains multiple accounts.")
     # Add any other IBKR-specific settings here if needed in the future,

@@ -201,6 +201,11 @@ class IbkrImporter:
         self.period_to = period_to
         self.account_settings_list = account_settings_list
         self.render_language = render_language
+        self._da1_nonrefundable_isins_by_account = {
+            settings.account_number: frozenset(settings.da1_nonrefundable_isins)
+            for settings in self.account_settings_list
+            if settings.account_number
+        }
 
         if not self.account_settings_list:
             # Currently no account info is used so we keep stumm.
@@ -301,6 +306,11 @@ class IbkrImporter:
             return
         apply_withholding_tax_fields(payment, amount, currency)
 
+    def _is_da1_nonrefundable_isin(self, account_id: str, isin: str | None) -> bool:
+        return isin is not None and isin in self._da1_nonrefundable_isins_by_account.get(
+            account_id, frozenset()
+        )
+
     def _build_security_payment(
         self,
         *,
@@ -309,8 +319,9 @@ class IbkrImporter:
         currency: str,
         amount: Decimal,
         tx_type: ibflex.CashAction,
+        claim_da1: bool = False,
     ) -> SecurityPayment:
-        return build_security_payment(
+        payment = build_security_payment(
             payment_date=payment_date,
             description=description,
             currency=currency,
@@ -319,6 +330,8 @@ class IbkrImporter:
             is_withholding=tx_type == ibflex.CashAction.WHTAX,
             is_securities_lending=tx_type == ibflex.CashAction.PAYMENTINLIEU,
         )
+        payment.claimDA1 = claim_da1 and tx_type == ibflex.CashAction.WHTAX
+        return payment
 
     def _import_corrections_flex_files(
         self,
@@ -408,6 +421,9 @@ class IbkrImporter:
                         currency=currency,
                         amount=amount,
                         tx_type=tx_type,
+                        claim_da1=self._is_da1_nonrefundable_isin(
+                            account_id, str(sec_pos_key.isin) if sec_pos_key.isin else None
+                        ),
                     )
                 )
                 corrections_count += 1
@@ -975,6 +991,9 @@ class IbkrImporter:
                             currency=currency,
                             amount=amount,
                             tx_type=tx_type,
+                            claim_da1=self._is_da1_nonrefundable_isin(
+                                account_id, str(sec_pos_key.isin) if sec_pos_key.isin else None
+                            ),
                         )
                         processed_security_positions[sec_pos_key]['payments'].append(sec_payment)
                     else:
